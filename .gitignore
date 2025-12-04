@@ -1,0 +1,10 @@
+# Ignore the virtual environment folder
+quantum_traffic_env/
+venv/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore simulation log files (optional)
+*.log
