@@ -11,8 +11,12 @@ from solver import QAOATrafficSolver
 from visualization import TrafficVisualizer
 
 # --- CONFIGURATION ---
-MAX_STEPS = 3600
-ANIMATION_DELAY = 0.02
+# [SPEED UPDATE] Reduced to 1500 steps (25 mins of traffic) to finish in < 2 mins
+MAX_STEPS = 1500 
+
+# [SPEED UPDATE] Set to 0.0 to run at maximum CPU speed
+ANIMATION_DELAY = 0.0  
+
 YELLOW_DURATION = 4      
 EMERGENCY_YELLOW = 2     
 
@@ -90,17 +94,52 @@ def check_emergency_vehicles(lanes_map):
         except: continue
     return False, -1
 
+def check_bus_priority():
+    current_phase = traci.trafficlight.getPhase("J1")
+    green_lanes = []
+    if current_phase == 0: green_lanes = ["n_in_0", "s_in_0"]
+    elif current_phase == 2: green_lanes = ["e_in_0", "w_in_0"]
+    for lane in green_lanes:
+        try:
+            veh_ids = traci.lane.getLastStepVehicleIDs(lane)
+            for veh in veh_ids:
+                if traci.vehicle.getTypeID(veh) == "bus":
+                    return True 
+        except: pass
+    return False
+
+def check_dilemma_zone():
+    current_phase = traci.trafficlight.getPhase("J1")
+    green_lanes = []
+    if current_phase == 0: green_lanes = ["n_in_0", "s_in_0"]
+    elif current_phase == 2: green_lanes = ["e_in_0", "w_in_0"]
+    for lane in green_lanes:
+        try:
+            veh_ids = traci.lane.getLastStepVehicleIDs(lane)
+            lane_len = traci.lane.getLength(lane)
+            for veh in veh_ids:
+                speed = traci.vehicle.getSpeed(veh) 
+                pos = traci.vehicle.getLanePosition(veh)
+                dist_to_stop = lane_len - pos
+                if speed > 10 and 10 < dist_to_stop < 40:
+                    return True
+        except: pass
+    return False
+
 def apply_weather_physics():
     try:
         veh_ids = traci.vehicle.getIDList()
         for veh in veh_ids:
-            if traci.vehicle.getTypeID(veh) == "ambulance":
+            v_type = traci.vehicle.getTypeID(veh)
+            if v_type == "ambulance": continue
+            if v_type == "bus":
+                traci.vehicle.setImperfection(veh, RAIN_SIGMA)
+                traci.vehicle.setSpeedFactor(veh, 0.7) 
                 continue
             traci.vehicle.setColor(veh, (0, 0, 139, 255)) 
             traci.vehicle.setImperfection(veh, RAIN_SIGMA)
             traci.vehicle.setSpeedFactor(veh, 0.8)
-    except:
-        pass
+    except: pass
 
 def calculate_dynamic_green_time(queue_length):
     if queue_length < 5: return 10 
@@ -110,12 +149,11 @@ def calculate_dynamic_green_time(queue_length):
 def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
     print(f"\n>>> STARTING {label} (GUI={gui}, QAOA={use_qaoa}) <<<")
     sumo_cmd = [get_sumo_binary(gui), "-c", "config.sumocfg", "--start", "--step-length", "0.1"]
-    
     try:
         traci.start(sumo_cmd)
     except Exception as e:
         print(f"CRITICAL ERROR: Could not start SUMO. Error: {e}")
-        return None, None
+        return None, None, None 
     
     time.sleep(1) 
 
@@ -136,18 +174,14 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
     next_decision_step = 100 
     current_sim_time = 0
     step = 0
-    
     weather_alert_printed = False
+    last_qubo = None 
 
     try:
         while current_sim_time < MAX_STEPS:
-            try:
-                traci.simulationStep()
-            except traci.TraCIException:
-                print("Simulation closed by SUMO.")
-                break
+            try: traci.simulationStep()
+            except: break
             
-            # Weather Effect
             if RAIN_MODE and current_sim_time > RAIN_START_TIME:
                 if step % 50 == 0:
                     apply_weather_physics()
@@ -155,40 +189,33 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
                         print(f"\n[WEATHER] 🌧️ STORM STARTED at {current_sim_time:.1f}s!")
                         weather_alert_printed = True
 
-            # Data Collection
             if step % 10 == 0:
                 try:
                     n = traci.lane.getLastStepVehicleNumber("n_in_0")
                     s = traci.lane.getLastStepVehicleNumber("s_in_0")
                     e = traci.lane.getLastStepVehicleNumber("e_in_0")
                     w = traci.lane.getLastStepVehicleNumber("w_in_0")
-                    
                     nw = traci.lane.getWaitingTime("n_in_0")
                     sw = traci.lane.getWaitingTime("s_in_0")
                     ew = traci.lane.getWaitingTime("e_in_0")
                     ww = traci.lane.getWaitingTime("w_in_0")
-                    
                     co2 = 0
                     for lid in ["n_in_0", "s_in_0", "e_in_0", "w_in_0"]:
                         try: co2 += traci.lane.getCO2Emission(lid)
                         except: pass
-                except:
-                    n=s=e=w=nw=sw=ew=ww=co2=0 
+                except: n=s=e=w=nw=sw=ew=ww=co2=0 
 
                 stats["North"]["queues"].append(n); stats["North"]["wait_time"].append(nw)
                 stats["South"]["queues"].append(s); stats["South"]["wait_time"].append(sw)
                 stats["East"]["queues"].append(e);  stats["East"]["wait_time"].append(ew)
                 stats["West"]["queues"].append(w);  stats["West"]["wait_time"].append(ww)
-                
                 total_q = n + s + e + w
                 variance = np.var([n, s, e, w]) if any([n,s,e,w]) else 0
-
                 history['time'].append(current_sim_time)
                 history['total_queue'].append(total_q)
                 history['queue_variance'].append(variance)
                 history['total_co2'].append(co2)
 
-            # --- LOGIC CONTROL ---
             if use_qaoa:
                 if yellow_timer > 0:
                     yellow_timer -= 0.1
@@ -205,82 +232,82 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
                             target_phase = emergency_phase
                             yellow_timer = EMERGENCY_YELLOW
                             next_decision_step = step + 50 
-                    else:
-                        if step >= next_decision_step:
-                            current_traffic = {
-                                "N_1": traci.lane.getLastStepVehicleNumber("n_in_0"),
-                                "S_1": traci.lane.getLastStepVehicleNumber("s_in_0"),
-                                "E_1": traci.lane.getLastStepVehicleNumber("e_in_0"),
-                                "W_1": traci.lane.getLastStepVehicleNumber("w_in_0")
-                            }
+                    elif step >= next_decision_step:
+                        if check_dilemma_zone():
+                             print(f"   -> [SAFETY] ⚠️ Dilemma Zone! Fast car approaching. Extending Green 2s.")
+                             next_decision_step = step + 20 
+                        elif check_bus_priority():
+                             print(f"   -> [BUS PRIORITY] 🚌 Bus detected. Extending Green 5s.")
+                             next_decision_step = step + 50 
+                        else:
+                            current_traffic = {"N_1": n, "S_1": s, "E_1": e, "W_1": w}
                             net.update_queues(current_traffic, current_co2=0)
                             
                             if sum(current_traffic.values()) > 0:
                                 qubo = QUBOGenerator(net, lambda_4=100.0).generate_qubo()
+                                last_qubo = qubo 
+                                
                                 solution = solver.solve(qubo)
                                 mode = solution.get(1, 0)
-                                
                                 desired_phase = -1
                                 if mode == 1: desired_phase = 0 
                                 elif mode == 3: desired_phase = 2 
                                 
-                                # Adaptive Calculation
                                 target_queue_size = 0
-                                if mode == 1: target_queue_size = current_traffic["N_1"] + current_traffic["S_1"]
-                                elif mode == 3: target_queue_size = current_traffic["E_1"] + current_traffic["W_1"]
+                                if mode == 1: target_queue_size = n + s
+                                elif mode == 3: target_queue_size = e + w
                                 
                                 green_time_seconds = calculate_dynamic_green_time(target_queue_size)
                                 next_decision_step = step + (green_time_seconds * 10) 
                                 
                                 if desired_phase != -1 and desired_phase != current_phase:
-                                    # PRINT ALWAYS
-                                    print(f"   -> [ADAPTIVE] Queue: {target_queue_size} cars. Switching & Holding for {green_time_seconds}s.")
+                                    print(f"   -> [ADAPTIVE] Queue: {target_queue_size}. Switch & Hold {green_time_seconds}s.")
                                     target_phase = desired_phase
                                     yellow_timer = YELLOW_DURATION
                                 else:
-                                    # PRINT ALWAYS
-                                    print(f"   -> [ADAPTIVE] Queue: {target_queue_size} cars. Extending Current Green for {green_time_seconds}s.")
+                                    print(f"   -> [ADAPTIVE] Queue: {target_queue_size}. Extend {green_time_seconds}s.")
                             else:
                                 next_decision_step = step + 50
             
             step += 1
             current_sim_time += 0.1
-            if gui and ANIMATION_DELAY > 0:
-                time.sleep(ANIMATION_DELAY)
+            if gui and ANIMATION_DELAY > 0: time.sleep(ANIMATION_DELAY)
 
-    except KeyboardInterrupt:
-        print(f"Stopped {label} by User.")
-    except Exception as e:
-        print(f"Error in main loop: {e}")
+    except KeyboardInterrupt: print(f"Stopped {label} by User.")
+    except Exception as e: print(f"Error in main loop: {e}")
     finally:
         try:
             traci.close()
             time.sleep(2)
-        except:
-            pass
+        except: pass
         print(f">>> FINISHED {label}")
-        return history, stats
+        return history, stats, last_qubo
 
 if __name__ == "__main__":
     visualizer = TrafficVisualizer()
+    solver_instance = QAOATrafficSolver()
 
-    if RAIN_MODE:
-        print(f"\n🌧️ RAIN MODE ENABLED: Weather will degrade at t={RAIN_START_TIME}s")
+    if RAIN_MODE: print(f"\n🌧️ RAIN MODE ENABLED: Weather will degrade at t={RAIN_START_TIME}s")
 
     print("--- Phase 1: Running Baseline (Fixed Time) ---")
-    baseline_history, _ = run_simulation(gui=False, use_qaoa=False, label="BASELINE")
+    baseline_history, baseline_stats, _ = run_simulation(gui=False, use_qaoa=False, label="BASELINE")
     
-    if baseline_history is None or not baseline_history['time']:
+    if not baseline_history or not baseline_history['time']:
         print("Baseline failed. Aborting.")
         sys.exit()
 
-    print("\n--- Phase 2: Running QAOA (Quantum + EVP + CO2 + Adaptive + Weather) ---")
-    qaoa_history, qaoa_stats = run_simulation(gui=True, use_qaoa=True, label="QAOA")
+    print("\n--- Phase 2: Running QAOA (Quantum + EVP + CO2 + Adaptive + Bus + Safety) ---")
+    qaoa_history, qaoa_stats, last_qubo = run_simulation(gui=True, use_qaoa=True, label="QAOA")
     
     if qaoa_history and qaoa_history['time']:
         print("\n=== GENERATING REPORTS ===")
+        
+        if last_qubo:
+            solver_instance.save_circuit_diagram(last_qubo)
+            
         show_final_report(qaoa_history, qaoa_stats, title="QAOA Run Stats")
         visualizer.generate_qaoa_diagnostics(qaoa_history)
+        visualizer.generate_before_after_bars(baseline_stats, qaoa_stats)
         visualizer.generate_comparison_report(baseline_history, qaoa_history)
     else:
         print("QAOA run failed or gathered no data.")

@@ -15,4 +15,9 @@
 
     <flow id="f_amb_n" type="ambulance" route="r_ns" begin="0" end="3600" probability="0.2"/>
     <flow id="f_amb_w" type="ambulance" route="r_we" begin="0" end="3600" probability="0.2"/>
+
+    <vType id="bus" accel="1.2" decel="4.0" length="12" maxSpeed="20" vClass="bus" guiShape="bus"/>
+
+    <flow id="f_bus_n" type="bus" route="r_ns" begin="20" end="3600" probability="0.05"/>
+    <flow id="f_bus_e" type="bus" route="r_ew" begin="20" end="3600" probability="0.05"/>
 </routes>
