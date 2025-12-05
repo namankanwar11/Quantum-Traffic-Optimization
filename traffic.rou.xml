@@ -1,15 +1,18 @@
 <routes>
     <vType id="car" accel="2.0" decel="4.5" sigma="0.5" length="5" minGap="2.5" maxSpeed="30" guiShape="passenger"/>
+    
+    <vType id="ambulance" accel="3.0" decel="4.5" length="7" maxSpeed="40" vClass="emergency" guiShape="emergency"/>
 
     <route id="r_ns" edges="n_in s_out"/>
     <route id="r_sn" edges="s_in n_out"/>
     <route id="r_ew" edges="e_in w_out"/>
     <route id="r_we" edges="w_in e_out"/>
 
-    <!-- Denser traffic: cars appear more often -->
     <flow id="f_n" type="car" route="r_ns" begin="0" end="3600" probability="0.5"/>
     <flow id="f_s" type="car" route="r_sn" begin="0" end="3600" probability="0.5"/>
-
     <flow id="f_e" type="car" route="r_ew" begin="0" end="3600" probability="0.4"/>
     <flow id="f_w" type="car" route="r_we" begin="0" end="3600" probability="0.6"/>
+
+    <flow id="f_amb_n" type="ambulance" route="r_ns" begin="50" end="3600" probability="0.005"/>
+    <flow id="f_amb_w" type="ambulance" route="r_we" begin="100" end="3600" probability="0.005"/>
 </routes>

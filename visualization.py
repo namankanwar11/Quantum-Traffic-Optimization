@@ -9,70 +9,85 @@ class TrafficVisualizer:
             os.makedirs(self.save_dir)
 
     def generate_qaoa_diagnostics(self, history):
-        """
-        [NEW FEATURE] Generates the specific "Congestion Reduction" and 
-        "Signal Balancing" graphs requested.
-        """
         print("\n=== Generating QAOA Diagnostics Graphs ===")
         if not history['time']:
              print("No data to visualize.")
              return
 
-        plt.figure(figsize=(12, 5))
+        plt.figure(figsize=(18, 5))
 
-        # --- Plot 1: Real-Time Congestion Reduction ---
-        plt.subplot(1, 2, 1)
-        # Using total_queue as the metric for total vehicles
-        plt.plot(history['time'], history['total_queue'], color='tab:blue', label='QAOA Controlled')
-        plt.xlabel("Simulation Step (s)")
-        plt.ylabel("Total Vehicles")
-        plt.title("Real-Time Congestion Reduction")
+        # --- Plot 1: Congestion ---
+        plt.subplot(1, 3, 1)
+        plt.plot(history['time'], history['total_queue'], color='tab:blue', label='Total Vehicles')
+        plt.xlabel("Step")
+        plt.ylabel("Count")
+        plt.title("Congestion Reduction")
         plt.grid(True, alpha=0.3)
         plt.legend()
 
-        # --- Plot 2: Traffic Signal Balancing (Variance) ---
-        # Variance measures how uneven the queues are. Lower variance = better balance.
-        if 'queue_variance' in history and history['queue_variance']:
-            plt.subplot(1, 2, 2)
-            plt.plot(history['time'], history['queue_variance'], color='tab:green', label='Queue Variance')
-            plt.xlabel("Simulation Step (s)")
-            plt.ylabel("Variance (Imbalance)")
+        # --- Plot 2: Balancing ---
+        plt.subplot(1, 3, 2)
+        if 'queue_variance' in history:
+            plt.plot(history['time'], history['queue_variance'], color='tab:green', label='Variance')
+            plt.xlabel("Step")
+            plt.ylabel("Variance")
             plt.title("Traffic Signal Balancing")
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+
+        # --- Plot 3: Environmental Impact (CO2) ---
+        plt.subplot(1, 3, 3)
+        if 'total_co2' in history:
+            co2_g = [x / 1000 for x in history['total_co2']]
+            plt.plot(history['time'], co2_g, color='tab:red', label='CO2 Emissions')
+            plt.xlabel("Step")
+            plt.ylabel("Emissions (g/sec)")
+            plt.title("Environmental Impact (CO2)")
             plt.grid(True, alpha=0.3)
             plt.legend()
 
         plt.tight_layout()
         save_path = os.path.join(self.save_dir, "qaoa_diagnostics.png")
         plt.savefig(save_path)
-        print(f"QAOA diagnostics graphs saved to: {save_path}")
-        print(">> Please CLOSE this window to proceed to the Final Comparison.")
+        print(f"Diagnostics saved to: {save_path}")
+        print(">> Please CLOSE this window to proceed.")
         plt.show(block=True)
 
     def generate_comparison_report(self, baseline_history, qaoa_history):
         print("\n=== FINAL COMPARISON REPORT ===")
         
-        # Calculate Averages based on 'total_queue'
-        base_avg = np.mean(baseline_history['total_queue'])
-        qaoa_avg = np.mean(qaoa_history['total_queue'])
+        # 1. Comparison Stats (Using full available data)
+        base_avg = np.mean(baseline_history['total_queue']) if baseline_history['total_queue'] else 0
+        qaoa_avg = np.mean(qaoa_history['total_queue']) if qaoa_history['total_queue'] else 0
         improvement = ((base_avg - qaoa_avg) / base_avg) * 100 if base_avg > 0 else 0
         
-        print(f"Baseline Avg Congestion: {base_avg:.2f} cars")
-        print(f"QAOA Avg Congestion:     {qaoa_avg:.2f} cars")
-        print(f"Improvement:             {improvement:.2f}%")
+        base_co2 = np.sum(baseline_history.get('total_co2', [0]))
+        qaoa_co2 = np.sum(qaoa_history.get('total_co2', [0]))
+        co2_imp = ((base_co2 - qaoa_co2) / base_co2) * 100 if base_co2 > 0 else 0
+
+        print(f"Congestion Improvement: {improvement:.2f}%")
+        print(f"CO2 Reduction:          {co2_imp:.2f}%")
+
+        # 2. Graphing (Fix: Slice data to match minimum length)
+        min_len = min(len(baseline_history['time']), len(qaoa_history['time']))
+        
+        # Create sliced arrays for plotting so dimensions match
+        plot_time = qaoa_history['time'][:min_len]
+        plot_base_q = baseline_history['total_queue'][:min_len]
+        plot_qaoa_q = qaoa_history['total_queue'][:min_len]
 
         plt.figure(figsize=(12, 6))
         
-        plt.plot(baseline_history['time'], baseline_history['total_queue'], 
-                 color='grey', linestyle='--', label='Baseline (Fixed Time)')
+        # Plot Baseline (Sliced)
+        plt.plot(plot_time, plot_base_q, color='grey', linestyle='--', label='Baseline')
         
-        plt.plot(qaoa_history['time'], qaoa_history['total_queue'], 
-                 color='green', linewidth=2, label='QAOA Optimized')
+        # Plot QAOA (Sliced)
+        plt.plot(plot_time, plot_qaoa_q, color='green', linewidth=2, label='QAOA Optimized')
         
-        # Fill area to highlight improvement
-        plt.fill_between(qaoa_history['time'], baseline_history['total_queue'], 
-                         qaoa_history['total_queue'], color='green', alpha=0.1)
+        # Fill Between (Now safe because sizes match)
+        plt.fill_between(plot_time, plot_base_q, plot_qaoa_q, color='green', alpha=0.1)
 
-        plt.title(f"Before vs After: Traffic Congestion (Imp: {improvement:.1f}%)", fontsize=14)
+        plt.title(f"Traffic Congestion (Imp: {improvement:.1f}%) | CO2 Red: {co2_imp:.1f}%", fontsize=14)
         plt.xlabel("Simulation Step (s)")
         plt.ylabel("Total Queue Length")
         plt.legend()
@@ -80,5 +95,4 @@ class TrafficVisualizer:
         
         save_path = os.path.join(self.save_dir, "comparison_result.png")
         plt.savefig(save_path)
-        print(f"Comparison graph saved to: {save_path}")
         plt.show(block=True)

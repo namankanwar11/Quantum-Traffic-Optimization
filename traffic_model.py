@@ -7,11 +7,12 @@ class TrafficNetwork:
         self.intersections = []
         self.queue_lengths = {}
         self.straight_fraction = 0.7
-        # [NEW FEATURE] History tracking
+        # [UPDATED] Added 'total_co2' to history
         self.history = {
             'step': [],
             'total_congestion': [],
-            'queue_variance': [] # To measure "Balanced Timings"
+            'queue_variance': [],
+            'total_co2': [] 
         }
         self.step_count = 0
 
@@ -23,13 +24,13 @@ class TrafficNetwork:
             self.graph.add_node(lane, type='lane')
             self.queue_lengths[lane] = 0
 
-    def update_queues(self, new_queues):
+    def update_queues(self, new_queues, current_co2=0):
         # Update current state
         for lane, cars in new_queues.items():
             if lane in self.queue_lengths:
                 self.queue_lengths[lane] = cars
         
-        # [NEW FEATURE] Record Statistics for Visualization
+        # Record Statistics
         self.step_count += 1
         current_queues = list(self.queue_lengths.values())
         total_cars = sum(current_queues)
@@ -38,6 +39,8 @@ class TrafficNetwork:
         self.history['step'].append(self.step_count)
         self.history['total_congestion'].append(total_cars)
         self.history['queue_variance'].append(variance)
+        # [NEW FEATURE] Track CO2
+        self.history['total_co2'].append(current_co2)
 
     def get_throughput_potential(self, intersection_id, mode):
         N = self.queue_lengths.get(f"N_{intersection_id}", 0)
