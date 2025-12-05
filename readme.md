@@ -9,14 +9,21 @@ A Bachelor Thesis Project (BTP) exploring the application of Quantum Computing t
 ### 1. Quantum Optimization (QAOA)
 Uses IBM's Qiskit to solve the Maximum Independent Set (MIS) problem, finding optimal traffic phases. Generates a **Quantum Circuit Diagram** for every decision.
 
-### 2. Priority Systems 🚑 🚌
+### 2. Auto-Pilot Presentation Mode 🎥
+The simulation includes a scripted demo mode that **automatically triggers events** to demonstrate features during a thesis defense:
+* **t=15s:** 🌧️ **Rain Storm** begins (Weather Logic).
+* **t=30s:** 🚑 **Ambulance** arrives (EVP Logic).
+* **t=50s:** 🚌 **Bus** arrives (Transit Priority Logic).
+* **t=70s:** ⚠️ **Fast Car** runs red light (Dilemma Zone Safety).
+
+### 3. Priority Systems 🚑 🚌
 * **Emergency Vehicle Priority (EVP):** Instantly overrides signals for ambulances.
 * **Transit Signal Priority (TSP):** Extends green lights for approaching Buses to improve public transit efficiency.
 
-### 3. Safety Engineering ⚠️
+### 4. Safety Engineering ⚠️
 * **Dilemma Zone Protection:** Detects high-speed vehicles approaching a yellow light and extends the green phase to prevent dangerous sudden braking.
 
-### 4. Adaptive & Environmental Logic 🌿
+### 5. Adaptive & Environmental Logic 🌿
 * **Adaptive Timing:** Allocates green time dynamically (10s–35s) based on exact queue length.
 * **CO2 Tracking:** Real-time monitoring of carbon emission reductions.
 * **Weather Simulation:** Simulates "Rain Mode" with reduced friction and visual cues (Blue vehicles).

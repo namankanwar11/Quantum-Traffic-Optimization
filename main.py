@@ -5,24 +5,21 @@ import time
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
+import random
 from traffic_model import TrafficNetwork
 from qubo_generator import QUBOGenerator
 from solver import QAOATrafficSolver
 from visualization import TrafficVisualizer
 
 # --- CONFIGURATION ---
-# [SPEED UPDATE] Reduced to 1500 steps (25 mins of traffic) to finish in < 2 mins
-MAX_STEPS = 1500 
-
-# [SPEED UPDATE] Set to 0.0 to run at maximum CPU speed
-ANIMATION_DELAY = 0.0  
-
+MAX_STEPS = 1500          # 25 Minutes of traffic (runs in ~2 mins real time)
+ANIMATION_DELAY = 0.0     # Maximum speed
 YELLOW_DURATION = 4      
 EMERGENCY_YELLOW = 2     
 
 # Weather Settings
 RAIN_MODE = True          
-RAIN_START_TIME = 20      
+RAIN_START_TIME = 15      # Rain starts early for demo
 RAIN_FRICTION = 0.6       
 RAIN_SIGMA = 0.9          
 
@@ -83,6 +80,8 @@ def show_final_report(history, stats, title="Simulation Results"):
     print(">> Please CLOSE this window to proceed.")
     plt.show(block=True)
 
+# --- LOGIC HELPERS ---
+
 def check_emergency_vehicles(lanes_map):
     lane_phase_map = {"n_in_0": 0, "s_in_0": 0, "e_in_0": 2, "w_in_0": 2}
     for lane_id, phase in lane_phase_map.items():
@@ -132,13 +131,14 @@ def apply_weather_physics():
         for veh in veh_ids:
             v_type = traci.vehicle.getTypeID(veh)
             if v_type == "ambulance": continue
+            
             if v_type == "bus":
                 traci.vehicle.setImperfection(veh, RAIN_SIGMA)
-                traci.vehicle.setSpeedFactor(veh, 0.7) 
-                continue
-            traci.vehicle.setColor(veh, (0, 0, 139, 255)) 
-            traci.vehicle.setImperfection(veh, RAIN_SIGMA)
-            traci.vehicle.setSpeedFactor(veh, 0.8)
+                traci.vehicle.setSpeedFactor(veh, 0.7)
+            else:
+                traci.vehicle.setColor(veh, (0, 0, 139, 255)) # Blue
+                traci.vehicle.setImperfection(veh, RAIN_SIGMA)
+                traci.vehicle.setSpeedFactor(veh, 0.8)
     except: pass
 
 def calculate_dynamic_green_time(queue_length):
@@ -146,8 +146,44 @@ def calculate_dynamic_green_time(queue_length):
     elif queue_length < 15: return 20 
     else: return 35 
 
+# [NEW FEATURE] Auto-Scenario Runner
+def run_presentation_scenario(step):
+    """
+    Automatically triggers events at specific time steps so the demo works perfectly.
+    """
+    # 300 steps = 30 seconds
+    if step == 300:
+        print(f"\n[DEMO SCRIPT] 🚑 Spawning Ambulance (North) for EVP Test...")
+        try:
+            vid = f"demo_amb_{step}"
+            traci.route.add(f"route_demo_amb_{step}", ["n_in", "s_out"])
+            traci.vehicle.add(vid, f"route_demo_amb_{step}", typeID="ambulance")
+        except: pass
+        
+    # 500 steps = 50 seconds
+    elif step == 500:
+        print(f"\n[DEMO SCRIPT] 🚌 Spawning Bus (East) for Priority Test...")
+        try:
+            vid = f"demo_bus_{step}"
+            traci.route.add(f"route_demo_bus_{step}", ["e_in", "w_out"])
+            traci.vehicle.add(vid, f"route_demo_bus_{step}", typeID="bus")
+        except: pass
+        
+    # 700 steps = 70 seconds
+    elif step == 700:
+        print(f"\n[DEMO SCRIPT] ⚠️ Spawning High-Speed Car for Dilemma Zone Test...")
+        try:
+            vid = f"demo_fast_{step}"
+            traci.route.add(f"route_demo_fast_{step}", ["n_in", "s_out"])
+            traci.vehicle.add(vid, f"route_demo_fast_{step}", typeID="car")
+            traci.vehicle.setColor(vid, (255, 0, 0, 255)) # Red
+            traci.vehicle.setSpeedMode(vid, 0) # Ignore speed limits
+            traci.vehicle.setSpeed(vid, 25) # 90 km/h
+        except: pass
+
 def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
     print(f"\n>>> STARTING {label} (GUI={gui}, QAOA={use_qaoa}) <<<")
+    
     sumo_cmd = [get_sumo_binary(gui), "-c", "config.sumocfg", "--start", "--step-length", "0.1"]
     try:
         traci.start(sumo_cmd)
@@ -174,14 +210,19 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
     next_decision_step = 100 
     current_sim_time = 0
     step = 0
-    weather_alert_printed = False
     last_qubo = None 
+    weather_alert_printed = False
 
     try:
         while current_sim_time < MAX_STEPS:
             try: traci.simulationStep()
             except: break
             
+            # [NEW] Run the Auto-Scenario
+            if gui and use_qaoa:
+                run_presentation_scenario(step)
+            
+            # Weather
             if RAIN_MODE and current_sim_time > RAIN_START_TIME:
                 if step % 50 == 0:
                     apply_weather_physics()
@@ -189,6 +230,7 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
                         print(f"\n[WEATHER] 🌧️ STORM STARTED at {current_sim_time:.1f}s!")
                         weather_alert_printed = True
 
+            # Data Collection
             if step % 10 == 0:
                 try:
                     n = traci.lane.getLastStepVehicleNumber("n_in_0")
@@ -287,8 +329,6 @@ if __name__ == "__main__":
     visualizer = TrafficVisualizer()
     solver_instance = QAOATrafficSolver()
 
-    if RAIN_MODE: print(f"\n🌧️ RAIN MODE ENABLED: Weather will degrade at t={RAIN_START_TIME}s")
-
     print("--- Phase 1: Running Baseline (Fixed Time) ---")
     baseline_history, baseline_stats, _ = run_simulation(gui=False, use_qaoa=False, label="BASELINE")
     
@@ -296,12 +336,11 @@ if __name__ == "__main__":
         print("Baseline failed. Aborting.")
         sys.exit()
 
-    print("\n--- Phase 2: Running QAOA (Quantum + EVP + CO2 + Adaptive + Bus + Safety) ---")
+    print("\n--- Phase 2: Running QAOA (Auto-Pilot Demo Mode) ---")
     qaoa_history, qaoa_stats, last_qubo = run_simulation(gui=True, use_qaoa=True, label="QAOA")
     
     if qaoa_history and qaoa_history['time']:
         print("\n=== GENERATING REPORTS ===")
-        
         if last_qubo:
             solver_instance.save_circuit_diagram(last_qubo)
             
