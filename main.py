@@ -13,7 +13,8 @@ from visualization import TrafficVisualizer
 # --- CONFIGURATION ---
 MAX_STEPS = 3600
 ANIMATION_DELAY = 0.02
-YELLOW_DURATION = 4
+YELLOW_DURATION = 4      # Standard Yellow
+EMERGENCY_YELLOW = 2     # Fast Yellow for Ambulance
 
 warnings.filterwarnings("ignore")
 try:
@@ -74,7 +75,7 @@ def show_final_report(history, stats, title="Simulation Results"):
 
 def check_emergency_vehicles(lanes_map):
     """
-    Scans for ambulances safely.
+    Scans for ambulances. Returns (True/False, Phase_Index)
     """
     lane_phase_map = {
         "n_in_0": 0, "s_in_0": 0,
@@ -83,13 +84,11 @@ def check_emergency_vehicles(lanes_map):
     
     for lane_id, phase in lane_phase_map.items():
         try:
-            # Safe call: if lane doesn't exist, this throws error, caught by except
             veh_ids = traci.lane.getLastStepVehicleIDs(lane_id)
             for veh in veh_ids:
                 if traci.vehicle.getTypeID(veh) == "ambulance":
                     return True, phase
         except:
-            # If lane doesn't exist, just skip it
             continue
     return False, -1
 
@@ -103,8 +102,7 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
         print(f"CRITICAL ERROR: Could not start SUMO. Error: {e}")
         return None, None
     
-    # Wait for SUMO to initialize ports
-    time.sleep(1)
+    time.sleep(1) # Allow SUMO to load
 
     net = TrafficNetwork()
     net.create_intersection(1)
@@ -135,7 +133,6 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
             # --- 1. Data Collection ---
             if step % 10 == 0:
                 try:
-                    # Safe Data Collection
                     n = traci.lane.getLastStepVehicleNumber("n_in_0")
                     s = traci.lane.getLastStepVehicleNumber("s_in_0")
                     e = traci.lane.getLastStepVehicleNumber("e_in_0")
@@ -146,15 +143,12 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
                     ew = traci.lane.getWaitingTime("e_in_0")
                     ww = traci.lane.getWaitingTime("w_in_0")
                     
-                    # Safe CO2 Collection
                     co2 = 0
                     for lid in ["n_in_0", "s_in_0", "e_in_0", "w_in_0"]:
                         try: co2 += traci.lane.getCO2Emission(lid)
                         except: pass
-                except Exception as e:
-                    # If lanes don't exist, use zeros to prevent crash
-                    print(f"Warning: Lane ID error ({e}). Using 0 values.")
-                    n=s=e=w=nw=sw=ew=ww=co2=0
+                except:
+                    n=s=e=w=nw=sw=ew=ww=co2=0 # Fallback
 
                 stats["North"]["queues"].append(n); stats["North"]["wait_time"].append(nw)
                 stats["South"]["queues"].append(s); stats["South"]["wait_time"].append(sw)
@@ -169,60 +163,72 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
                 history['queue_variance'].append(variance)
                 history['total_co2'].append(co2)
 
-            # --- 2. Control Logic ---
+            # --- 2. LOGIC CONTROL ---
             if use_qaoa:
-                # SAFE EMERGENCY CHECK
-                emergency_found, emergency_phase = check_emergency_vehicles(None)
-                
-                if emergency_found:
-                    current_phase = traci.trafficlight.getPhase("J1")
-                    if current_phase != emergency_phase and target_phase != emergency_phase:
-                        print(f"!!! AMBULANCE DETECTED !!! Forcing Phase {emergency_phase}")
-                        target_phase = emergency_phase
-                        yellow_timer = 2 
-                
-                elif yellow_timer > 0:
+                # [A] Handle Timer Decrement FIRST
+                # This ensures the light actually changes even if logic loops
+                if yellow_timer > 0:
                     yellow_timer -= 0.1
                     if yellow_timer <= 0:
                         traci.trafficlight.setPhase("J1", target_phase)
-                        yellow_timer = 0
+                        # print(f"   -> Switch Complete. Phase {target_phase}")
                 
-                elif step % decision_interval == 0:
-                    # SAFE PEDESTRIAN CHECK (The likely cause of previous crash)
-                    peds_n = 0
-                    try:
-                        peds_n = traci.edge.getLastStepPersonNumber("n_in")
-                        if peds_n > 5:
-                            print("High Pedestrian Traffic Detected.")
-                    except:
-                        # If edge 'n_in' doesn't exist, just ignore pedestrians
-                        pass
+                # [B] Decision Logic (Only if Light is Stable/Green)
+                if yellow_timer <= 0:
                     
-                    # QAOA Logic
-                    current_traffic = {
-                        "N_1": n, "S_1": s, "E_1": e, "W_1": w
-                    }
-                    net.update_queues(current_traffic, current_co2=0)
-                    
-                    if sum(current_traffic.values()) > 0:
-                        qubo = QUBOGenerator(net, lambda_4=100.0).generate_qubo()
-                        solution = solver.solve(qubo)
-                        mode = solution.get(1, 0)
+                    # 1. EMERGENCY CHECK
+                    emergency_found, emergency_phase = check_emergency_vehicles(None)
+                    current_phase = traci.trafficlight.getPhase("J1")
+
+                    if emergency_found:
+                        if current_phase != emergency_phase:
+                            print(f"!!! AMBULANCE DETECTED !!! Switching to Phase {emergency_phase}")
+                            target_phase = emergency_phase
+                            yellow_timer = EMERGENCY_YELLOW # Fast switch
+                        else:
+                            # Already green for ambulance. Stay green.
+                            pass 
+
+                    # 2. STANDARD QAOA (Only if no ambulance)
+                    else:
+                        # [OPTIMIZATION] "Actuated" Logic
+                        # If current green lanes are EMPTY, switch immediately!
+                        cars_on_green = 0
+                        if current_phase == 0: # NS is Green
+                            cars_on_green = traci.lane.getLastStepVehicleNumber("n_in_0") + traci.lane.getLastStepVehicleNumber("s_in_0")
+                        elif current_phase == 2: # EW is Green
+                            cars_on_green = traci.lane.getLastStepVehicleNumber("e_in_0") + traci.lane.getLastStepVehicleNumber("w_in_0")
                         
-                        current_phase = traci.trafficlight.getPhase("J1")
-                        desired_phase = -1
-                        if mode == 1: desired_phase = 0 
-                        elif mode == 3: desired_phase = 2 
+                        total_network_cars = n + s + e + w # from data collection
                         
-                        if desired_phase != -1 and desired_phase != current_phase:
-                            if current_phase == 0:
-                                traci.trafficlight.setPhase("J1", 1) 
-                                target_phase = 2 
-                                yellow_timer = YELLOW_DURATION
-                            elif current_phase == 2:
-                                traci.trafficlight.setPhase("J1", 3) 
-                                target_phase = 0 
-                                yellow_timer = YELLOW_DURATION
+                        # Decide: Run QAOA if (Interval Reached) OR (Green Lane Empty but Network Busy)
+                        should_run = (step % decision_interval == 0)
+                        if cars_on_green == 0 and total_network_cars > 0:
+                            should_run = True # Force optimization now
+                        
+                        if should_run:
+                            # Gather fresh data
+                            current_traffic = {
+                                "N_1": traci.lane.getLastStepVehicleNumber("n_in_0"),
+                                "S_1": traci.lane.getLastStepVehicleNumber("s_in_0"),
+                                "E_1": traci.lane.getLastStepVehicleNumber("e_in_0"),
+                                "W_1": traci.lane.getLastStepVehicleNumber("w_in_0")
+                            }
+                            net.update_queues(current_traffic, current_co2=0)
+                            
+                            if sum(current_traffic.values()) > 0:
+                                qubo = QUBOGenerator(net, lambda_4=100.0).generate_qubo()
+                                solution = solver.solve(qubo)
+                                mode = solution.get(1, 0)
+                                
+                                desired_phase = -1
+                                if mode == 1: desired_phase = 0 
+                                elif mode == 3: desired_phase = 2 
+                                
+                                if desired_phase != -1 and desired_phase != current_phase:
+                                    # print(f"[Time {int(current_sim_time)}s] QAOA Switch -> Mode {mode}")
+                                    target_phase = desired_phase
+                                    yellow_timer = YELLOW_DURATION
             
             step += 1
             current_sim_time += 0.1
@@ -236,7 +242,6 @@ def run_simulation(gui=True, use_qaoa=True, label="Simulation"):
     finally:
         try:
             traci.close()
-            # Give SUMO time to fully close before next run
             time.sleep(2)
         except:
             pass
@@ -250,7 +255,7 @@ if __name__ == "__main__":
     baseline_history, _ = run_simulation(gui=False, use_qaoa=False, label="BASELINE")
     
     if baseline_history is None or not baseline_history['time']:
-        print("Baseline failed (likely lane ID mismatch). Aborting.")
+        print("Baseline failed. Aborting.")
         sys.exit()
 
     print("\n--- Phase 2: Running QAOA (Quantum Optimized + EVP + CO2) ---")
@@ -258,13 +263,8 @@ if __name__ == "__main__":
     
     if qaoa_history and qaoa_history['time']:
         print("\n=== GENERATING REPORTS ===")
-        # 1. Original Dashboard
         show_final_report(qaoa_history, qaoa_stats, title="QAOA Run Stats")
-        
-        # 2. Diagnostics (Congestion, Variance, CO2)
         visualizer.generate_qaoa_diagnostics(qaoa_history)
-        
-        # 3. Final Comparison
         visualizer.generate_comparison_report(baseline_history, qaoa_history)
     else:
         print("QAOA run failed or gathered no data.")

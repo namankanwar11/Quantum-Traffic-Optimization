@@ -13,6 +13,6 @@
     <flow id="f_e" type="car" route="r_ew" begin="0" end="3600" probability="0.4"/>
     <flow id="f_w" type="car" route="r_we" begin="0" end="3600" probability="0.6"/>
 
-    <flow id="f_amb_n" type="ambulance" route="r_ns" begin="50" end="3600" probability="0.005"/>
-    <flow id="f_amb_w" type="ambulance" route="r_we" begin="100" end="3600" probability="0.005"/>
+    <flow id="f_amb_n" type="ambulance" route="r_ns" begin="0" end="3600" probability="0.2"/>
+    <flow id="f_amb_w" type="ambulance" route="r_we" begin="0" end="3600" probability="0.2"/>
 </routes>
