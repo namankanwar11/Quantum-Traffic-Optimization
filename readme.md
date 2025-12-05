@@ -1,32 +1,29 @@
 # Quantum Traffic Light Optimization (QAOA) 🚦⚛️
 
-A Bachelor Thesis Project (BTP) exploring the application of Quantum Computing to smart city traffic management. This project uses the **Quantum Approximate Optimization Algorithm (QAOA)** to dynamically control traffic signals in SUMO, integrating real-world constraints like emergency vehicles, weather conditions, and safety protocols.
+A Bachelor Thesis Project (BTP) exploring the application of Quantum Computing to smart city traffic management. This project demonstrates a **Proactive Traffic Control System** that anticipates congestion using look-ahead data and optimizes signal timings via the Quantum Approximate Optimization Algorithm (QAOA).
 
 
 
 ## 🌟 Key Features
 
-### 1. Quantum Optimization (QAOA)
-Uses IBM's Qiskit to solve the Maximum Independent Set (MIS) problem, finding optimal traffic phases. Generates a **Quantum Circuit Diagram** for every decision.
+### 1. Triple-Phase Comparative Architecture 📊
+The system runs three distinct simulation modes for comprehensive academic comparison:
+* **Phase 1 (Baseline):** Unoptimized fixed-time traffic control.
+* **Phase 2 (Reactive QAOA):** Optimizes only based on current queue lengths (no lookahead).
+* **Phase 3 (Proactive QAOA):** Optimizes based on a weighted prediction of future congestion (Look-Ahead Control).
 
-### 2. Auto-Pilot Presentation Mode 🎥
-The simulation includes a scripted demo mode that **automatically triggers events** to demonstrate features during a thesis defense:
-* **t=15s:** 🌧️ **Rain Storm** begins (Weather Logic).
-* **t=30s:** 🚑 **Ambulance** arrives (EVP Logic).
-* **t=50s:** 🚌 **Bus** arrives (Transit Priority Logic).
-* **t=70s:** ⚠️ **Fast Car** runs red light (Dilemma Zone Safety).
+### 2. Proactive Look-Ahead Control 🔮
+The QAOA objective function ($\text{Ising Hamiltonian}$) is constructed using a weighted average of **waiting traffic** (reactive) and **approaching traffic** (proactive), allowing the system to clear lanes before they become fully jammed.
 
-### 3. Priority Systems 🚑 🚌
+### 3. Safety & Priority Systems 🚑 🚌 ⚠️
+* **Dilemma Zone Protection:** Extends green light when high-speed vehicles are in the critical stopping zone.
 * **Emergency Vehicle Priority (EVP):** Instantly overrides signals for ambulances.
-* **Transit Signal Priority (TSP):** Extends green lights for approaching Buses to improve public transit efficiency.
+* **Transit Signal Priority (TSP):** Extends green lights for approaching Buses to improve person throughput.
 
-### 4. Safety Engineering ⚠️
-* **Dilemma Zone Protection:** Detects high-speed vehicles approaching a yellow light and extends the green phase to prevent dangerous sudden braking.
-
-### 5. Adaptive & Environmental Logic 🌿
+### 4. Adaptive & Environmental Logic 🌿
 * **Adaptive Timing:** Allocates green time dynamically (10s–35s) based on exact queue length.
 * **CO2 Tracking:** Real-time monitoring of carbon emission reductions.
-* **Weather Simulation:** Simulates "Rain Mode" with reduced friction and visual cues (Blue vehicles).
+* **Weather Simulation:** Simulates "Rain Mode" physics with visual cues (Blue vehicles).
 
 ## 🛠️ Tech Stack
 
@@ -45,4 +42,4 @@ The simulation includes a scripted demo mode that **automatically triggers event
 ### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
-pip install pylatexenc  # Required for circuit diagrams
+pip install pylatexenc

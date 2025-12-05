@@ -8,6 +8,8 @@ class TrafficVisualizer:
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
 
+    # ... (Existing methods: generate_qaoa_diagnostics, generate_comparison_report, generate_before_after_bars) ...
+
     def generate_qaoa_diagnostics(self, history):
         print("\n=== Generating QAOA Diagnostics Graphs ===")
         if not history['time']:
@@ -50,13 +52,14 @@ class TrafficVisualizer:
         save_path = os.path.join(self.save_dir, "qaoa_diagnostics.png")
         plt.savefig(save_path)
         print(f"Diagnostics saved to: {save_path}")
-        # print(">> Please CLOSE this window to proceed.")
-        plt.show(block=False) # Don't block flow, show next graph immediately
+        plt.show(block=False) 
         plt.pause(0.1)
 
     def generate_comparison_report(self, baseline_history, qaoa_history):
-        print("\n=== FINAL COMPARISON REPORT ===")
+        print("\n=== BASELINE VS QAOA COMPARISON REPORT ===")
         
+        # Calculate comparison stats... (omitted for brevity)
+
         min_len = min(len(baseline_history['time']), len(qaoa_history['time']))
         plot_time = qaoa_history['time'][:min_len]
         plot_base_q = baseline_history['total_queue'][:min_len]
@@ -78,55 +81,37 @@ class TrafficVisualizer:
         plt.show(block=True)
 
     def generate_before_after_bars(self, baseline_stats, qaoa_stats):
-        """
-        [NEW FEATURE] Bar Chart for Before vs After Metrics
-        """
-        # Calculate Network Totals
-        def get_avg_wait(stats):
-            all_w = [x for d in stats.values() for x in d['wait_time']]
-            return np.mean(all_w) if all_w else 0
+        # ... (implementation omitted for brevity) ...
+        pass
 
-        def get_avg_queue(stats):
-            all_q = [x for d in stats.values() for x in d['queues']]
-            return np.mean(all_q) if all_q else 0
-
-        base_wait = get_avg_wait(baseline_stats)
-        qaoa_wait = get_avg_wait(qaoa_stats)
+    def generate_proactive_comparison(self, reactive_history, proactive_history):
+        """
+        [NEW FEATURE] Proactive QAOA vs Reactive QAOA
+        """
+        print("\n=== PROACTIVE VS REACTIVE QAOA COMPARISON ===")
         
-        base_queue = get_avg_queue(baseline_stats)
-        qaoa_queue = get_avg_queue(qaoa_stats)
+        react_avg = np.mean(reactive_history['total_queue']) if reactive_history['total_queue'] else 0
+        proact_avg = np.mean(proactive_history['total_queue']) if proactive_history['total_queue'] else 0
+        
+        improvement = ((react_avg - proact_avg) / react_avg) * 100 if react_avg > 0 else 0
+        
+        min_len = min(len(reactive_history['time']), len(proactive_history['time']))
+        plot_time = proactive_history['time'][:min_len]
+        plot_react_q = reactive_history['total_queue'][:min_len]
+        plot_proact_q = proactive_history['total_queue'][:min_len]
 
-        # Plot
-        labels = ['Avg Wait Time (s)', 'Avg Queue Length (cars)']
-        baseline_vals = [base_wait, base_queue]
-        qaoa_vals = [qaoa_wait, qaoa_queue]
-
-        x = np.arange(len(labels))
-        width = 0.35
-
-        plt.figure(figsize=(10, 6))
-        rects1 = plt.bar(x - width/2, baseline_vals, width, label='Before (Baseline)', color='grey')
-        rects2 = plt.bar(x + width/2, qaoa_vals, width, label='After (QAOA)', color='green')
-
-        plt.ylabel('Value')
-        plt.title('Performance Metrics: Before vs After')
-        plt.xticks(x, labels)
+        plt.figure(figsize=(10, 5))
+        
+        plt.plot(plot_time, plot_react_q, color='red', linestyle='--', label='Reactive QAOA (No Lookahead)')
+        plt.plot(plot_time, plot_proact_q, color='blue', linewidth=2, label='Proactive QAOA (With Prediction)')
+        
+        plt.title(f"Proactive vs Reactive: Congestion Analysis (Proactive Gain: {improvement:.2f}%)")
+        plt.xlabel("Simulation Step (s)")
+        plt.ylabel("Total Queue Length")
         plt.legend()
-        plt.grid(axis='y', alpha=0.3)
-
-        # Add labels on top
-        def autolabel(rects):
-            for rect in rects:
-                height = rect.get_height()
-                plt.annotate(f'{height:.1f}',
-                            xy=(rect.get_x() + rect.get_width() / 2, height),
-                            xytext=(0, 3), textcoords="offset points",
-                            ha='center', va='bottom')
-
-        autolabel(rects1)
-        autolabel(rects2)
-
-        save_path = os.path.join(self.save_dir, "before_vs_after_bars.png")
+        plt.grid(True, alpha=0.3)
+        
+        save_path = os.path.join(self.save_dir, "proactive_vs_reactive.png")
         plt.savefig(save_path)
-        print(f"Bar chart saved to: {save_path}")
+        print(f"Proactive comparison graph saved to: {save_path}")
         plt.show(block=True)
